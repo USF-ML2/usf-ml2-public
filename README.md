@@ -1,1 +1,4 @@
-# usf-ml2-public
+MSAN 630 Advanced Machine Learning
+======================
+
+Course Materials for MSAN 630: Advanced Machine Learning
