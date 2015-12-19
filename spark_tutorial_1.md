@@ -47,10 +47,9 @@ Once you have files on the master you can set up directories in the HDFS as desi
 
 
 ```{r, engine='bash'}
-export PATH=$PATH:/root/ephemeral-hdfs/bin/
-hadoop fs -mkdir /data/airline
-hadoop fs -copyFromLocal /mnt/airline/*bz2 /data/airline
-hadoop fs -ls /data/airline
+hadoop fs -mkdir /data/
+hadoop fs -copyFromLocal /mnt/airline/*bz2 /data/
+hadoop fs -ls /data
 ```
 
 Note that the commands to interact with the HDFS are similar to UNIX commands (`mkdir`, `ls`, etc.) but they must follow the `hadoop fs -` syntax.
