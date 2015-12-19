@@ -325,4 +325,131 @@ means[0:3]
 
 Note that the result of the `reduceByKey()` is just another (small) RDD.
 
+Note that we wrote our own reduce function because Python lists/tuples don't add in a vectorized fashion so we couldn't just use `operator.add()`, but if we had made the values in the key-value pairs to be *numpy* arrays we could have just done `reduceByKey(add)`.
+
+### 2.4.2) Calculating medians as a non-standard MapReduce task
+
+This will be more computationally intensive because we don't have an associative and commutative function for reduction. Instead we need all the values for a given key to calculate the summary statistic of interest. So we use `groupByKey()` and then apply the median function to the RDD where each key has as its value the entire set of values for that key from the mapper. I suspect that Spark/Hadoop experts would frown on what I do here as it wouldn't scale as the strata sizes increase, but it seems fairly effective for these sizes of strata.
+
+```
+def medianFun(input):
+    import numpy as np
+    if len(input) == 2:
+        if len(input[1]) > 0:
+            med = np.median([val[0] for val in input[1] if val[1] == 1.0])
+            return((input[0], med))
+        else:
+            return((input[0], -999))
+    else:
+        return((input[0], -9999))
+
+output = mappedLines.groupByKey()
+output.count()
+# 186116
+medianResults = output.map(medianFun).collect()
+medianResults[0:3]
+# [(u'EA-11-ATL-DEN', 0.0), (u'NW-11-MSP-SDF', -3.0), (u'DH-8-HPN-ORD', -7.0)]
+
+# here's code to show the iterable object produced by groupByKey()
+dat = output.take(1)
+dat[0][0]
+len(dat[0][1])
+[val for val in dat[0][1]]
+```
+
+Note that the median calculation is another map function not a reduce, because it's just a 1-1 transformation of the RDD that is returned by `groupByKey()`. But of course the size of the value associated with each key is much larger before the application of the `medianFun()` map step.
+
+### 2.4.3) Stratifying data and exporting
+
+Now suppose we wanted to create multiple datasets, one per stratum. This does not fit all that well into the MapReduce/HDFS paradigm. We could loop through the unique values of the stratifying variable using `filter()` and `saveAsTextFile()` as seen above. There are not really any better ways to do this. In previous tries, I used `sortByKey()` first and that improved speed but I've been running into errors recently when doing that, with Spark losing access to some of the worker tasks (executors). Here I'll stratify by departure airport.
+
+```
+def createKeyValue(line):
+    vals = line.split(',')
+    keyVal = vals[16]
+    return(keyVal, line)
+
+keyedLines = lines.map(createKeyValue).cache()
+
+keys = keyedLines.countByKey().keys()
+
+for curkey in keys:
+    fn = '/data/' + curkey
+    keyedLines.filter(lambda x: curkey == x[0]).map(lambda x: x[1]).repartition(1).saveAsTextFile(fn)
+```
+
+The `repartition(1)` ensures that the entire RDD for a given key is on a single partition so that we get a single file for each stratum instead of having each stratum split into pieces across the different nodes hosting the HDFS. The mapper simply pulls out the value for each key-value pair, discarding the key.
+
+
+## 2.5) Doing simulation via a simple MapReduce calculation
+
+We'll do a simulation to estimate the value of $\pi$ as an embarrassingly parallel calculation using MapReduce.
+
+Here's the Python code
+
+```{r, eval=FALSE, engine='python'}
+import numpy.random as rand
+from operator import add
+
+samples_per_slice = 1000000
+num_cores = 24
+num_slices = num_cores * 20
+
+def sample(p):
+    rand.seed(p)
+    x, y = rand.random(samples_per_slice), rand.random(samples_per_slice)
+    return sum(x*x + y*y < 1)
+
+count = sc.parallelize(xrange(0, num_slices), num_slices).map(sample).reduce(add)
+print "Pi is roughly %f" % (4.0 * count / (num_slices*samples_per_slice))
+```
+
+Let's piece that apart. The `parallelize()` call basically takes the numbers {0,1,2,...,num_slices-1} and treats them as the input "dataset". These are the initial units and then the transformation (the mapper) is to do the random number generation and compute the partial sum. The second argument to `parallelize()` indicates how many partitions to create, so this will correspond to the number of tasks that will be carried out in a subsequent map step. Using `paralllelize()` to create an RDD from an existing Python list is another way to create an RDD, in addition to reading data from an external storage system such as the HDFS.
+
+A few comments here. First we could have sampled a single random vector, thereby calling `parallelize()` across numslices*samples_per_slice, with one task per {x,y} pair. But it's much more computationally efficient to do a larger chunk of calculation in each process since there is overhead in running each process. But we want enough processes to make use of all the processors collectively in our Spark cluster and probably rather more than that in case some processors do the computation more slowly than others. Also, if the computation involved a large amount of memory we wouldn't want to exceed the physical RAM available to the processes that work simultaneously on a node. However, we also don't want too many tasks. For example, if we try to have as many as 50 million parallel tasks, Spark will hang. Somehow the overhead in creating that many tasks is too great, though I need to look further for a complete explanation.
+
+## 2.6) Random number generation in parallel
+
+A basic approach to deal with parallel random number generation (RNG) is to set  the seed based on the task id, e.g., passed in via `parallelize()` above.  This doesn't guarantee that the random number streams for the different tasks will not overlap, but it should be unlikely. Unfortunately Python does not provide the L'Ecuyer algorithm, or other algorithms to ensure non-overlapping streams, unlike R and Matlab.
+
+## 2.7) Using PySpark in batch (non-interactive mode)
+
+We can also do that calculation as a batch job.
+
+Here's the code in the file *piCalc.py*:
+
+```{r, eval=FALSE, engine='python'}
+import sys
+import numpy.random as rand
+from operator import add
+from pyspark import SparkContext
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print >> sys.stderr, "Usage: spark-submit piCalc.py <total_samples> <slices>"
+        exit(-1)
+    sc = SparkContext()
+    total_samples = int(sys.argv[1]) if len(sys.argv) > 1 else 1000000
+    num_slices = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+    samples_per_slice = round(total_samples / num_slices)
+
+    def sample(p):
+        rand.seed(p)
+        x, y = rand.random(samples_per_slice), rand.random(samples_per_slice)
+        return sum(x*x + y*y < 1)
+
+    count = sc.parallelize(xrange(0, num_slices), num_slices).map(sample).reduce(add)
+    print "Pi is roughly %f" % (4.0 * count / (num_slices*samples_per_slice))
+
+```
+
+Note that by starting Python via PySpark, the *sc* object is created and available to you, but for batch jobs we need to import *SparkContext* and instantiate the *sc* object ourselves.
+
+And here's how we run it from the UNIX command line on the master node
+```{r, eval=FALSE}
+spark-submit piCalc.py 100000000 1000
+```
+
+<!--
+# pyspark piCalc.py `cat /root/spark-ec2/cluster-url` 100000000 1000
+-->
 
