@@ -5,7 +5,7 @@ based on the tutorial by
 Chris Paciorek UC Berkeley
 http://www.stat.berkeley.edu/scf/paciorek-spark-2014.html
 
-
+I am assuming you have a cluster in EMR.
 
 To get the airline dataset we will be using as a running example, you can download from [this
 URL](http://www.stat.berkeley.edu/share/paciorek/1987-2008.csvs.tgz).
@@ -74,7 +74,6 @@ We can run PySpark in the form of a Python command line interpreter session or i
 
 To start PySpark in an interactive session, we do this
 ```{r, engine='bash'}
-export PATH=${PATH}:/root/spark/bin
 pyspark
 ```
 
@@ -88,7 +87,7 @@ Spark is AMPLab's effort to create a version of Hadoop that uses memory as much 
 First we'll see how to read data into Spark from the HDFS and do some basic manipulations of the data.
 
 ```{r, eval=FALSE}
-lines = sc.textFile('/data/airline')
+lines = sc.textFile('/data')
 lines.count()
 ```
 
@@ -99,25 +98,16 @@ Note that the first line seems to take no time at all. That is because Spark use
 You should see a bunch of logging messages that look like this:
 
 ```
-14/10/31 01:15:53 INFO mapred.FileInputFormat: Total input paths to process : 22
-14/10/31 01:15:53 INFO spark.SparkContext: Starting job: count at <stdin>:1
-14/10/31 01:15:53 INFO scheduler.DAGScheduler: Got job 3 (count at <stdin>:1) with 22 output partitions (allowLocal=false)
-14/10/31 01:15:53 INFO scheduler.DAGScheduler: Final stage: Stage 3(count at <stdin>:1)
-14/10/31 01:15:53 INFO scheduler.DAGScheduler: Parents of final stage: List()
-14/10/31 01:15:53 INFO scheduler.DAGScheduler: Missing parents: List()
-14/10/31 01:15:53 INFO scheduler.DAGScheduler: Submitting Stage 3 (PythonRDD[16] at RDD at PythonRDD.scala:43), which has no missing parents
-...
-...
-14/10/31 01:15:54 INFO storage.BlockManagerInfo: Added broadcast_8_piece0 in memory on ip-10-249-71-5.us-west-2.compute.internal:49964 (size: 4.7 KB, free: 3.1 GB)
-14/10/31 01:15:54 INFO storage.BlockManagerInfo: Added broadcast_8_piece0 in memory on ip-10-249-25-57.us-west-2.compute.internal:37497 (size: 4.7 KB, free: 3.1 GB)
-14/10/31 01:15:54 INFO storage.BlockManagerInfo: Added broadcast_8_piece0 in memory on ip-10-249-62-60.us-west-2.compute.internal:56086 (size: 4.7 KB, free: 3.1 GB)
-14/10/31 01:15:57 INFO scheduler.TaskSetManager: Starting task 19.0 in stage 3.0 (TID 27, ip-10-249-31-110.us-west-2.compute.internal, ANY, 1243 bytes)
-14/10/31 01:16:14 INFO scheduler.TaskSetManager: Finished task 0.0 in stage 3.0 (TID 6) in 21020 ms on ip-10-249-30-169.us-west-2.compute.internal (1/22)
-14/10/31 01:16:29 INFO scheduler.TaskSetManager: Finished task 4.0 in stage 3.0 (TID 17) in 35919 ms on ip-10-249-15-15.us-west-2.compute.internal (2/22)
-14/10/31 01:16:31 INFO scheduler.TaskSetManager: Finished task 9.0 in stage 3.0 (TID 14) in 38311 ms on ip-10-226-142-5.us-west-2.compute.internal (3/22)
-14/10/31 01:16:37 INFO scheduler.TaskSetManager: Finished task 7.0 in stage 3.0 (TID 18) in 43942 ms on ip-10-249-30-169.us-west-2.compute.internal (4/22)
-14/10/31 01:16:55 INFO scheduler.TaskSetManager: Finished task 2.0 in stage 3.0 (TID 10) in 62229 ms on ip-10-249-14-142.us-west-2.compute.internal (5/22)
-...
+..
+..
+15/12/19 22:07:15 INFO TaskSetManager: Finished task 16.0 in stage 0.0 (TID 16) in 76332 ms on ip-172-31-12-78.us-west-2.compute.internal (19/22)
+15/12/19 22:07:23 INFO TaskSetManager: Finished task 19.0 in stage 0.0 (TID 20) in 84165 ms on ip-172-31-12-78.us-west-2.compute.internal (20/22)
+15/12/19 22:07:23 INFO TaskSetManager: Finished task 20.0 in stage 0.0 (TID 17) in 84345 ms on ip-172-31-12-76.us-west-2.compute.internal (21/22)
+15/12/19 22:07:25 INFO TaskSetManager: Finished task 21.0 in stage 0.0 (TID 21) in 85443 ms on ip-172-31-12-76.us-west-2.compute.internal (22/22)
+15/12/19 22:07:25 INFO DAGScheduler: ResultStage 0 (count at <stdin>:1) finished in 85.482 s
+15/12/19 22:07:25 INFO YarnScheduler: Removed TaskSet 0.0, whose tasks have all completed, from pool 
+15/12/19 22:07:25 INFO DAGScheduler: Job 0 finished: count at <stdin>:1, took 85.549686 s
+123534991
 ```
 
 There are 22 tasks because there are 22 data files. Each task is done as a single process on one of the nodes.
@@ -147,7 +137,7 @@ Note that if either of your AWD credential strings has a "/" in it, that can cau
 To better distribute the data across the nodes, I'm going to repartition the dataset into more than 22 chunks.
 
 ```
-lines = sc.textFile('/data/airline').repartition(192).cache()
+lines = sc.textFile('/data').repartition(192).cache()
 ```
 And I also "cached" the RDD so that it is retained in memory for later processing steps.
 
@@ -249,7 +239,7 @@ Note also the *sc* object we used for reading from the HDFS was a *SparkContext*
 
 ### 2.3.2) Caching
 
-Spark by default will try to manipulate RDDs in memory if they fit in the collective memory of the nodes. You can tell Spark that a given RDD should be kept in memory so that you can quickly access it later by using the `cache()` method. To see the RDDs that are cached in memory, go to `http://<master_url>:4040` and click on the "Storage" tab.
+Spark by default will try to manipulate RDDs in memory if they fit in the collective memory of the nodes. You can tell Spark that a given RDD should be kept in memory so that you can quickly access it later by using the `cache()` method. 
 
 If an RDD won't fit in memory, Spark will recompute it as needed, but this will involve a lot of additional computation. In some (but not all) cases in which there is not enough collective memory you may want it cached on disk. The [Spark programming guide](http://spark.apache.org/docs/latest/programming-guide.html#rdd-persistence) has more information.
 
