@@ -43,4 +43,40 @@ wget http://www.stat.berkeley.edu/share/paciorek/1987-2008.csvs.tgz
 tar -xvzf 1987-2008.csvs.tgz
 ```
 
+Note that transfer to your cluster is free, but transfer from your cluster can be expensive. Campus is setting up a portal to AWS to greatly reduce that cost. Email consult@stat.berkeley.edu or consult@econ.berkeley.edu for more information.
+
+Once you have files on the master you can set up directories in the HDFS as desired and copy the dataset onto the HDFS as follows. Often your dataset will be a collection of (possibly zipped) plain text files, such as CSVs. You don't need to unzip the files - Spark can read data from zipped files.
+
+
+```{r, engine='bash'}
+export PATH=$PATH:/root/ephemeral-hdfs/bin/
+hadoop fs -mkdir /data/airline
+hadoop fs -copyFromLocal /mnt/airline/*bz2 /data/airline
+hadoop fs -ls /data/airline
+```
+
+Note that the commands to interact with the HDFS are similar to UNIX commands (`mkdir`, `ls`, etc.) but they must follow the `hadoop fs -` syntax.
+
+Note that in general you want your dataset to be split into multiple chunks but not so many that each chunk is tiny (HDFS has trouble when there are millions of files -- see [this explanation](http://blog.cloudera.com/blog/2009/02/the-small-files-problem/), nor so few that the dataset can't be distributed across the nodes of the distributed file system or cannot be distributed roughly equally in size across the nodes. However, in terms of the latter issues, one can "repartition" the data in Spark.
+
+If you've done some operations and created a dataset (called *airline-sfo* here) on the HDFS that you want to transfer back to the master node, you can do the following. Note that this may give you back a dataset broken into pieces (one per Spark partition) so you may need to use UNIX tools to combine into one file.
+
+```{r, engine='bash'}
+hadoop fs -copyToLocal /data/airline-sfo /mnt/airline-sfo
+```
+
+#### Copying directly from Amazon's S3
+
+If the files are stored on Amazon's S3, you can copy directly onto the HDFS. Here's how, using the Google ngrams dataset as an example. Note that we need Hadoop's MapReduce processes running to do this distributed copy operation and Spark does not start these by default. (For doing MapReduce within Spark, we do NOT need to do this.)
+
+```
+# start MapReduce processes
+/root/ephemeral-hdfs/bin/start-mapred.sh
+hadoop fs -mkdir /data/ngrams
+hadoop distcp -D fs.s3n.awsAccessKeyId="<AWS_ACCESS_KEY_ID>" -D fs.s3n.awsSecretAccessKey="<AWS_SECRET_ACCESS_KEY>" \
+   s3n://datasets.elasticmapreduce/ngrams/books/20090715/eng-us-all/1gram hdfs:///data/ngrams
+```
+
+You'll need to use your AWS account information in place of the `<AWS_ACCESS_KEY_ID>` and `<AWS_SECRET_ACCESS_KEY>` strings here. Also check to see whether you need "s3" or "s3n" for the dataset you are interested in. Also, you may want to see if the dataset is stored in a particular AWS region as this may incur additional charges to transfer across regions. If so you may want to start up your cluster in the region in which the data reside.
+
 
