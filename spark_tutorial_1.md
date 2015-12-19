@@ -197,7 +197,7 @@ Now suppose I want to use Spark to do some stratification. Here's a very basic s
 
 I'm going to group by departure/arrival airport pairs and then count the number of flights. I'll use a mapper, `createKeyValue()`, to create key-value pairs where the key is the route and the value is just a 1 and then I do a reduction, stratifying by key, where I simply count the records associated with each key by using `add` as the reduce function. In Python, the key-value pairs are just a 2-element tuple (I think a 2-element list would be fine), but the value could be arbitrarily more complicated than the scalar quantity 1 that I use here.
 
-```{r, eval=FALSE}
+```{r, eval=FALSE, engine='python'}
 from operator import add
 
 def createKeyValue(line):
@@ -224,7 +224,7 @@ routeCount2 = lines.map(createKeyValue).countByKey()
 
 One useful thing is to be able to grab a single element or a few elements from an Spark dataset. This allows us to look at the structure of units in the dataset and test our code by applying our Python functions directly to the units.
 
-```
+```{r, eval=FALSE, engine='python'}
 oneLine = lines.take(1)
 # test my createKeyValue() function:
 createKeyValue(oneLine)
@@ -331,7 +331,7 @@ Note that we wrote our own reduce function because Python lists/tuples don't add
 
 This will be more computationally intensive because we don't have an associative and commutative function for reduction. Instead we need all the values for a given key to calculate the summary statistic of interest. So we use `groupByKey()` and then apply the median function to the RDD where each key has as its value the entire set of values for that key from the mapper. I suspect that Spark/Hadoop experts would frown on what I do here as it wouldn't scale as the strata sizes increase, but it seems fairly effective for these sizes of strata.
 
-```
+```{r, eval=FALSE, engine='python'}
 def medianFun(input):
     import numpy as np
     if len(input) == 2:
@@ -363,7 +363,7 @@ Note that the median calculation is another map function not a reduce, because i
 
 Now suppose we wanted to create multiple datasets, one per stratum. This does not fit all that well into the MapReduce/HDFS paradigm. We could loop through the unique values of the stratifying variable using `filter()` and `saveAsTextFile()` as seen above. There are not really any better ways to do this. In previous tries, I used `sortByKey()` first and that improved speed but I've been running into errors recently when doing that, with Spark losing access to some of the worker tasks (executors). Here I'll stratify by departure airport.
 
-```
+```{r, eval=FALSE, engine='python'}
 def createKeyValue(line):
     vals = line.split(',')
     keyVal = vals[16]
