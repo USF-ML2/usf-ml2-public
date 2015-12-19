@@ -5,7 +5,11 @@ based on the tutorial by
 Chris Paciorek UC Berkeley
 http://www.stat.berkeley.edu/scf/paciorek-spark-2014.html
 
-I am assuming you have a cluster in EMR.
+I am assuming you have created cluster in Elastic MapReduce (EMR). You can log-in to the master node of your cluster but doing something like.
+
+```
+ssh -i ~/.ssh/yan-usf.pem hadoop@ec2-xxxxxxxxx.us-west-2.compute.amazonaws.com
+```
 
 To get the airline dataset we will be using as a running example, you can download from [this
 URL](http://www.stat.berkeley.edu/share/paciorek/1987-2008.csvs.tgz).
