@@ -26,7 +26,21 @@ Spark allows one to write code in Java, Scala, and Python. We'll use the Python 
 more widely known in the Statistics and Economics communities and should be easier to get started with for those who
 don't know any of those languages.
 
-I won't assume knowledge of Python but will assume basic familiarity with operating in UNIX shell and with a scripting
-languages similar to Python such as R or Matlab. We'll also make use of some basic concepts of object-oriented
-programming.
+### 1.2 Getting data onto your cluster and onto the HDFS
+
+Here are some options.
+
+#### Copying to the master node followed by copying to the HDFS
+
+You can use `scp` to copy files to the master node. The easiest thing is to be logged onto the master node and scp from your local machine to the master. But you can also use the IP address from `/root/ephemeral-hdfs/conf/masters` to scp from your local machine to the master, making sure to use the `-i ~/.ssh/${SSH_KEY_FILENAME}` flag to point to your private key.
+
+We'll copy the ASA Data Expo Airline dataset:
+
+```
+mkdir /mnt/airline
+cd /mnt/airline
+wget http://www.stat.berkeley.edu/share/paciorek/1987-2008.csvs.tgz
+tar -xvzf 1987-2008.csvs.tgz
+```
+
 
