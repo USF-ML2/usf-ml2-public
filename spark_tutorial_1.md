@@ -220,5 +220,109 @@ I wrote that as presented above to illustrate key-value pairs and using a map-re
 routeCount2 = lines.map(createKeyValue).countByKey()
 ```
 
+### 2.2.5) Getting a few elements for inspection and debugging
+
+One useful thing is to be able to grab a single element or a few elements from an Spark dataset. This allows us to look at the structure of units in the dataset and test our code by applying our Python functions directly to the units.
+
+```
+oneLine = lines.take(1)
+# test my createKeyValue() function:
+createKeyValue(oneLine)
+createKeyValue(oneLine[0])
+keyValues = lines.map(createKeyValue).cache()
+twoKeyValues = keyValues.take(2)
+twoKeyValues
+# [(u'AVP-PIT', 1), (u'LAX-IND', 1)]
+twoKeyCounts = keyValues.reduceByKey(add).take(2)
+# [(u'ORD-SEA', 101949), (u'MCI-MSY', 925)]
+```
+
+Make sure you know what kind of Python object is in use for each observation in the RDD - originally it's often just a text line from CSV, but after mapping it would often be a tuple or a list. It's good to check your code on individual elements or pairs of elements from the RDD obtained via `take()`. Note that sometimes things will be embedded in a list and you'll need to burrow into it as seen in the example where we had a list of length one containing the string.
+
+
+## 2.3) Some fundamental ideas in MapReduce and Spark
+Now that we've seen a few example computations, let's step back and discuss a few concepts.
+
+### 2.3.1) RDDs
+
+Spark datasets are called Resilient Distributed Datasets (RDDs). Spark operations generally take the form of a method applied to an RDD object and the methods can be chained together, as we've already seen.
+
+Note also the *sc* object we used for reading from the HDFS was a *SparkContext* object that encapsulates information about the Spark setup. The `textfile()` function is a method used with SparkContext objects.
+
+
+### 2.3.2) Caching
+
+Spark by default will try to manipulate RDDs in memory if they fit in the collective memory of the nodes. You can tell Spark that a given RDD should be kept in memory so that you can quickly access it later by using the `cache()` method. To see the RDDs that are cached in memory, go to `http://<master_url>:4040` and click on the "Storage" tab.
+
+If an RDD won't fit in memory, Spark will recompute it as needed, but this will involve a lot of additional computation. In some (but not all) cases in which there is not enough collective memory you may want it cached on disk. The [Spark programming guide](http://spark.apache.org/docs/latest/programming-guide.html#rdd-persistence) has more information.
+
+### 2.3.3) Partitions and repartitioning
+
+The number of chunks your dataset is broken into can greatly impact computational efficiency. When a map function is applied to the RDD, the work is broken into one task per partition.
+
+You want each partition to be able to fit in the memory availalbe on a node, and if you have multi-core nodes, you want that as many partitions as there are cores be able to fit in memory.
+
+For load-balancing you'll want at least as many partitions as total computational cores in your cluster and probably rather more partitions. The Spark documentation suggests 2-4 partitions (which they also seem to call *slices*) per CPU. Often there are 100-10,000 partitions. Another rule of thumb is that tasks should take at least 100 ms. If less than that, you may want to repartition to have fewer partitions.
+
+As an example that we've already seen, the original airline dataset is in 22 partitions, one per input CSV file, and those partitions are different sizes because the data size varies by year. So it's a good idea to repartition the dataset as you're doing your initial manipulations on it, as we did above. But it did take a while to do that because of all the transferring of data across nodes.
+
+### 2.3.4) MapReduce
+
+MapReduce is a sort of meta-algorithm. If you can write your algorithm/computation as a MapReduce algorithm, then you should be able to implement it in Spark or in standard Hadoop, including Amazon's Elastic MapReduce framework.
+
+The basic idea is that your computation be written as a one or more iterations over a *Map* step and a *Reduce* step. The map step takes each 'observation' (each unit that can be treated independently) and applies some transformation to it. Think of a mathematical mapping. The reduction step then takes the results and does some sort of aggregation operation that returns a summary measure. Sometimes the mapping step involves computing a key for each unit. The units that share the same key are then collected together and a reduction step may be done for each key value.
+
+Actually, it's more general than that. We may have multiple map steps before any reduction or no reduction at all. Also `reduceByKey()` returns an RDD, so there could potentially be multiple reductions.
+
+Reduction functions should be associative and commutative. It shouldn't matter what order the operations are done in or which observations are grouped with which others in order that the reduction can be done in parallel in a simple fashion.
+
+We'll see a variety of MapReduce algorithms here so this should become more concrete.
+
+In addition to map and reduce steps, we can explicitly pass shared data to all the nodes via a broadcast step. Broadcast variables allow the programmer to keep a read-only variable cached on each machine rather than shipping a copy of it with tasks. They can be used, for example, to give every node a copy of a large input dataset in an efficient manner.
+
+## 2.4) Additional data processing in Spark
+
+Now let's do some aggregation/summarization calculations. One might do this sort of thing in the process of reducing down a large dataset to some summary values on which to do the core analysis.
+
+First we'll do some calculations involving sums/means that naturally fit within a MapReduce paradigm and then we'll do a median calculation, which is not associative and commutative so is a bit harder and wouldn't scale well.
+
+### 2.4.1) Calculating means as a simple MapReduce task
+
+Here we'll compute the mean departure delay by airline-month-origin-destination sets. So we'll create a compound key and then do reduction separately for each key value (stratum).
+
+Our map function will exclude missing data and the header 'observations'.
+
+```{r, engine='python'}
+def mapper(line):
+    vals = line.split(',')
+    key = '-'.join([vals[x] for x in [8,1,16,17]])
+    if vals[0] == 'Year' or vals[14] == 'NA':
+       key = '0'
+       delay = 0.0
+       valid = 0.0
+    else:
+       delay = float(vals[14])
+       valid = 1.0
+    return(key, (delay, valid))
+
+
+def reducer( (dep1, valid1), (dep2, valid2) ):
+    return( (dep1 + dep2), (valid1 + valid2) )
+
+mappedLines = lines.map(mapper).cache()
+tmp = mappedLines.reduceByKey(reducer)
+tmp
+# PythonRDD[11] at RDD at PythonRDD.scala:43
+results = tmp.collect()
+results = tmp.collect()
+results[0:3]
+# [(u'EA-11-ATL-DEN', (1531.0, 265.0)), (u'NW-11-MSP-SDF', (3290.0, 882.0)), (u'DL-9-SEA-JFK', (5301.0, 577.0))]
+means = [(val[0], val[1][0]/val[1][1]) for val in results if val[1][1] > 0.0]
+means[0:3]
+# [(u'EA-11-ATL-DEN', 5.777358490566038), (u'NW-11-MSP-SDF', 3.7301587301587302), (u'DL-9-SEA-JFK', 9.1871750433275565)]
+
+```
+
+Note that the result of the `reduceByKey()` is just another (small) RDD.
 
 
