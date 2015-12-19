@@ -22,9 +22,7 @@ system (HDFS) for storing data and of Amazon's EC2 for creating virtual Linux cl
 To do all this we'll be making use of [Spark](http://spark.apache.org), a project out of the AMPLab here at Berkeley
 that aims to greatly increase the speed of Hadoop MapReduce by keeping data in memory when possible.
 
-Spark allows one to write code in Java, Scala, and Python. We'll use the Python interface, called PySpark, as Python is
-more widely known in the Statistics and Economics communities and should be easier to get started with for those who
-don't know any of those languages.
+Spark allows one to write code in Java, Scala, and Python. We'll use the Python interface, called PySpark.
 
 ### 1.2 Getting data onto your cluster and onto the HDFS
 
