@@ -10,7 +10,9 @@ chmod 600 my-aws-key-pair.pem
 Get Access Keys
 https://console.aws.amazon.com/iam/home?nc2=h_m_sc#security_credential
 
-Create a user and dowload credentials.
-chmod 600 credentials.csv
+From the rootkey.csv file get your
+AWSAccessKeyId and AWSSecretKey
 
+Create a cluster using 
+elasticmapreduce
 
